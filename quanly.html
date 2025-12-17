@@ -1,0 +1,217 @@
+﻿<!DOCTYPE html>
+<html lang="vi">
+<head>
+<meta charset="UTF-8">
+<title>Quản lý thăm khách – BB692</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+body{font-family:Arial;background:#f4f6f8;margin:0}
+.container{max-width:1300px;margin:20px auto;background:#fff;padding:20px;border-radius:10px}
+h2{text-align:center}
+.filters{display:flex;gap:15px;flex-wrap:wrap;margin:10px 0}
+.filters select,.filters input{padding:6px}
+.stats{display:flex;gap:15px;flex-wrap:wrap;margin:15px 0}
+.stat{flex:1;min-width:220px;background:#003366;color:#fff;padding:12px;border-radius:8px;text-align:center}
+.chart-wrap{display:flex;gap:20px;flex-wrap:wrap}
+.chart-box{flex:1;min-width:320px}
+table{width:100%;border-collapse:collapse;margin-top:15px;font-size:14px}
+th,td{border:1px solid #ccc;padding:6px;text-align:center}
+th{background:#eee}
+button{padding:4px 8px;cursor:pointer}
+.approve{background:green;color:#fff}
+.reject{background:orange;color:#fff}
+.export{margin-top:12px;background:#0055aa;color:#fff;padding:8px 14px;border:none;border-radius:6px}
+</style>
+</head>
+
+<body>
+<div class="container">
+<h2>QUẢN LÝ ĐĂNG KÝ THĂM KHÁCH</h2>
+
+<!-- BỘ LỌC -->
+<div class="filters">
+  <label>Thời gian:
+    <select id="timeFilter" onchange="applyFilter()">
+      <option value="7">7 ngày</option>
+      <option value="3">3 ngày</option>
+      <option value="1">Hôm nay</option>
+      <option value="all">Tất cả</option>
+    </select>
+  </label>
+
+  <label>Đơn vị:
+    <select id="donviFilter" onchange="applyFilter()">
+      <option value="">Tất cả</option>
+    </select>
+  </label>
+
+  <label>Quân nhân:
+    <input type="text" id="quannhanFilter" placeholder="Nhập tên quân nhân" onkeyup="applyFilter()">
+  </label>
+</div>
+
+<!-- THỐNG KÊ -->
+<div class="stats">
+  <div class="stat">
+    <div>Tổng hồ sơ</div>
+    <h3 id="tongHoSo">0</h3>
+  </div>
+  <div class="stat">
+    <div>Tổng người lên thăm</div>
+    <h3 id="tongNguoi">0</h3>
+  </div>
+</div>
+
+<!-- BIỂU ĐỒ -->
+<div class="chart-wrap">
+  <div class="chart-box"><canvas id="donviChart"></canvas></div>
+  <div class="chart-box"><canvas id="tinhChart"></canvas></div>
+</div>
+
+<!-- BẢNG -->
+<table>
+<thead>
+<tr>
+  <th>Họ tên</th>
+  <th>Quan hệ</th>
+  <th>Số người</th>
+  <th>Quân nhân</th>
+  <th>Đơn vị</th>
+  <th>Quê quán</th>
+  <th>Thời gian</th>
+  <th>Trạng thái</th>
+  <th>Xử lý</th>
+</tr>
+</thead>
+<tbody id="tbody"></tbody>
+</table>
+
+<button class="export" onclick="exportCSV()">Xuất báo cáo</button>
+</div>
+
+<script>
+const API_URL="https://script.google.com/macros/s/AKfycbwnFqGxfL2NZEir08jTMo70EH5PLera8XwT5FeqiRBrDyhtOd2bof5YU3LRc73vCw85/exec";
+
+let allData=[], filteredData=[];
+let chartDV, chartTinh;
+
+function loadData(){
+  fetch(API_URL).then(r=>r.json()).then(d=>{
+    allData=d;
+    buildDonViFilter();
+    applyFilter();
+  });
+}
+
+function buildDonViFilter(){
+  const sel=document.getElementById("donviFilter");
+  const dvSet=[...new Set(allData.map(r=>r.donvi).filter(Boolean))];
+  sel.innerHTML='<option value="">Tất cả</option>';
+  dvSet.forEach(dv=>{
+    sel.innerHTML+=`<option value="${dv}">${dv}</option>`;
+  });
+}
+
+function applyFilter(){
+  const tVal=document.getElementById("timeFilter").value;
+  const dvVal=document.getElementById("donviFilter").value;
+  const qnVal=document.getElementById("quannhanFilter").value.toLowerCase();
+  const now=new Date();
+
+  filteredData=allData.filter(r=>{
+    // thời gian
+    if(tVal!=="all"){
+      const tg=new Date(r.thoigian);
+      if((now-tg)/(1000*60*60*24)>Number(tVal)) return false;
+    }
+    // đơn vị
+    if(dvVal && r.donvi!==dvVal) return false;
+    // quân nhân
+    if(qnVal && !r.quannhan.toLowerCase().includes(qnVal)) return false;
+    return true;
+  });
+
+  renderAll();
+}
+
+function renderAll(){
+  renderStats();
+  renderTable();
+  renderCharts();
+}
+
+function renderStats(){
+  document.getElementById("tongHoSo").innerText=filteredData.length;
+  document.getElementById("tongNguoi").innerText=
+    filteredData.reduce((s,r)=>s+(Number(r.soluong)||0),0);
+}
+
+function renderTable(){
+  const tb=document.getElementById("tbody");
+  tb.innerHTML="";
+  filteredData.forEach((r,i)=>{
+    tb.innerHTML+=`
+    <tr>
+      <td>${r.hoten}</td>
+      <td>${r.quanhe}</td>
+      <td>${r.soluong}</td>
+      <td>${r.quannhan}</td>
+      <td>${r.donvi}</td>
+      <td>${r.tinhthanhpho}</td>
+      <td>${r.thoigian}</td>
+      <td>${r.trangthai}</td>
+      <td>
+        <button class="approve" onclick="updateStatus(${i},'Đã duyệt')">✔</button>
+        <button class="reject" onclick="updateStatus(${i},'Từ chối')">✖</button>
+      </td>
+    </tr>`;
+  });
+}
+
+function renderCharts(){
+  const dv={}, tinh={};
+  filteredData.forEach(r=>{
+    dv[r.donvi]=(dv[r.donvi]||0)+Number(r.soluong);
+    tinh[r.tinhthanhpho]=(tinh[r.tinhthanhpho]||0)+Number(r.soluong);
+  });
+
+  if(chartDV) chartDV.destroy();
+  if(chartTinh) chartTinh.destroy();
+
+  chartDV=new Chart(donviChart,{
+    type:"bar",
+    data:{labels:Object.keys(dv),datasets:[{label:"Theo đơn vị",data:Object.values(dv)}]},
+    options:{responsive:true}
+  });
+
+  chartTinh=new Chart(tinhChart,{
+    type:"pie",
+    data:{labels:Object.keys(tinh),datasets:[{data:Object.values(tinh)}]},
+    options:{responsive:true}
+  });
+}
+
+function updateStatus(i,status){
+  fetch(API_URL,{
+    method:"POST",
+    body:JSON.stringify({action:"update",row:i,trangthai:status})
+  }).then(loadData);
+}
+
+function exportCSV(){
+  let csv="Ho ten,Quan he,So nguoi,Quan nhan,Don vi,Que quan,Thoi gian,Trang thai\n";
+  filteredData.forEach(r=>{
+    csv+=`${r.hoten},${r.quanhe},${r.soluong},${r.quannhan},${r.donvi},${r.tinhthanhpho},${r.thoigian},${r.trangthai}\n`;
+  });
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(new Blob([csv],{type:"text/csv"}));
+  a.download="bao_cao_loc.csv";
+  a.click();
+}
+
+loadData();
+</script>
+</body>
+</html>
